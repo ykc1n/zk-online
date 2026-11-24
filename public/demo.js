@@ -55,8 +55,8 @@ export async function readDemo(file) {
   }
 }
 
-export function startScript(game, map) {
-  if ([game, map].some((value) => !value || /[;{}\[\]\r\n]/.test(value)))
+export function startScript({game, ai, sides}, map) {
+  if ([game, map, ai, ...sides].some((value) => !value || /[;{}\[\]\r\n]/.test(value)))
     throw new Error("Invalid map or game name.");
   return `[GAME]
 {
@@ -68,9 +68,9 @@ export function startScript(game, map) {
   MyPlayerName=Player;
   StartPosType=2;
   [PLAYER0] { Name=Player; Team=0; Spectator=0; }
-  [AI0] { Name=CAI; ShortName=CAI; Team=1; Host=0; }
-  [TEAM0] { TeamLeader=0; AllyTeam=0; Side=Robots; RGBColor=0.22 0.66 1; }
-  [TEAM1] { TeamLeader=0; AllyTeam=1; Side=Robots; RGBColor=1 0.25 0.1; }
+  [AI0] { Name=${ai}; ShortName=${ai}; Team=1; Host=0; }
+  [TEAM0] { TeamLeader=0; AllyTeam=0; Side=${sides[0]}; RGBColor=0.22 0.66 1; }
+  [TEAM1] { TeamLeader=0; AllyTeam=1; Side=${sides[1]}; RGBColor=1 0.25 0.1; }
   [ALLYTEAM0] { NumAllies=0; StartRectLeft=0; StartRectRight=0.25; StartRectTop=0; StartRectBottom=1; }
   [ALLYTEAM1] { NumAllies=0; StartRectLeft=0.75; StartRectRight=1; StartRectTop=0; StartRectBottom=1; }
 }

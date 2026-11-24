@@ -1,6 +1,7 @@
 import { readDemo, startScript } from "./demo.js";
 const $ = (id) => document.getElementById(id);
 const canvas = $("canvas");
+const gameKey = new URLSearchParams(location.search).get("game") === "bar" ? "bar" : "zk";
 let runtime,
   busy = false,
   running = false;
@@ -98,12 +99,10 @@ function diagnostics(line) {
     return;
   }
   if (String(line).includes("Beginning demo playback")) {
-    status(
-      "Replay loaded · Use Skip pregame in the game to jump to deployment.",
-    );
+    status("Replay loaded · Waiting for deployment.");
     return;
   }
-  if (/PreGame::AddModArchivesToVFS/.test(line))
+  if (/PreGame::Add(?:Map|Mod)ArchivesToVFS/.test(line))
     status("Reading game archives…");
   const stage = String(line).match(
     /\[LoadScreen::SetLoadMessage\] text="(.*)"/i,
@@ -140,15 +139,21 @@ async function launch(file) {
           throw new Error(
             "The server is missing the Recoil browser build. See the project README.",
           );
+        const preset = runtime.presets[gameKey];
         const meta = file
           ? await readDemo(file)
-          : { game: runtime.game, map: $("map").value.trim() };
-        if (file && meta.engine !== runtime.engine)
+          : { game: preset.game, map: $("map").value.trim() };
+        if (file && ![runtime.engine, runtime.browserEngine].includes(meta.engine))
           throw new Error(
             `This demo needs Recoil ${meta.engine}. This player runs ${runtime.engine}.`,
           );
-        const script = file ? null : startScript(meta.game, meta.map);
-        $("kind").textContent = file ? "REPLAY" : "SKIRMISH · CAI";
+        const key = Object.keys(runtime.presets).find((id) =>
+          meta.game.toLowerCase().startsWith(runtime.presets[id].title.toLowerCase() + " "));
+        if (!key) throw new Error("Choose a Zero-K or Beyond All Reason demo.");
+        const script = file ? null : startScript(preset, meta.map);
+        document.body.classList.toggle("bar", key === "bar");
+        document.title = runtime.presets[key].title + " · zk-online";
+        $("kind").textContent = file ? meta.game + " · REPLAY" : preset.title + " · " + preset.ai;
         $("match").textContent = meta.map;
         $("launcher").hidden = true;
         $("session").hidden = false;
@@ -157,13 +162,16 @@ async function launch(file) {
         $("progress").removeAttribute("value");
         status("Resolving " + meta.game + " and " + meta.map + "…");
         const getAsset = (kind, name) =>
-          json("/api/content?" + new URLSearchParams({ kind, name }));
+          json("/api/content?" + new URLSearchParams({ kind, name, game: key }));
         const [game, map] = await Promise.all([
           getAsset("game", meta.game),
           getAsset("map", meta.map),
         ]);
         const assets = [...runtime.files, game, map];
-        const root = await navigator.storage.getDirectory();
+        const storage = await navigator.storage.getDirectory();
+        const prefix = key === "bar" ? "bar/" : "";
+        const root = prefix ? await storage.getDirectoryHandle(key, { create: true }) : storage;
+        const dataDir = prefix ? "/recoil/" + key : "/recoil";
         const total = assets.reduce((n, asset) => n + asset.size, 0);
         let done = 0;
         $("progress").max = 1;
@@ -185,9 +193,9 @@ async function launch(file) {
         await write(root, entry, file || script);
         await root.getDirectoryHandle("shadercache", { create: true });
         await write(
-          root,
+          storage,
           "mtimes.tsv",
-          assets.map((a) => "1700000000\t" + a.path).join("\n") + "\n",
+          assets.map((a) => "1700000000\t" + prefix + a.path).join("\n") + "\n",
         );
         const settings = {
           Fullscreen: 0,
@@ -224,15 +232,15 @@ async function launch(file) {
             "/engine/" + name + "?build=" + encodeURIComponent(runtime.build),
           arguments: [
             "--isolation-dir",
-            "/recoil",
+            dataDir,
             "--write-dir",
-            "/recoil/write",
-            "/recoil/" + entry,
+            dataDir + "/write",
+            dataDir + "/" + entry,
           ],
           recoilEnv: {
-            SPRING_DATADIR: "/recoil/write:/recoil",
-            SPRING_WRITEDIR: "/recoil/write",
-            RECOIL_WEB_SHADER_CACHE: "/recoil/shadercache",
+            SPRING_DATADIR: dataDir + "/write:" + dataDir,
+            SPRING_WRITEDIR: dataDir + "/write",
+            RECOIL_WEB_SHADER_CACHE: dataDir + "/shadercache",
           },
           print: diagnostics,
           printErr: diagnostics,
@@ -310,13 +318,26 @@ canvas.onmousedown = (e) => {
     canvas.requestPointerLock()?.catch(() => {});
 };
 try {
+  runtime = await json("/api/runtime");
+  const selected = runtime.presets[gameKey];
+  document.body.classList.toggle("bar", gameKey === "bar");
+  document.title = selected.title + " · zk-online";
+  $(gameKey + "-link").setAttribute("aria-current", "page");
+  $("title").textContent = selected.title;
+  $("map").value = selected.map;
+  $("version").textContent = runtime.engine;
+  $("opponent").textContent = "Play against " + selected.ai;
+  if (gameKey === "bar") {
+    $("brief").textContent = "Lead Armada against Cortex. The first launch downloads about 2 GB.";
+  }
+  mode(new URLSearchParams(location.search).has("game"));
   const architecture = await navigator.userAgentData?.getHighEntropyValues?.([
     "bitness",
     "wow64",
   ]);
   if (architecture?.wow64 || architecture?.bitness === "32") {
     throw new Error(
-      "Zero-K needs a 64-bit browser. Open this address in 64-bit Edge or Chrome.",
+      "Open this address in 64-bit Edge or Chrome to run Recoil.",
     );
   }
   if (
@@ -329,9 +350,6 @@ try {
       "Open this page in desktop Chrome or Edge with WebGL2 enabled, using HTTPS or localhost and cross-origin isolation.",
     );
   }
-  runtime = await json("/api/runtime");
-  $("map").value = runtime.map;
-  $("version").textContent = runtime.engine;
   if (!runtime.ready)
     throw new Error("The Recoil build is missing on this server.");
   status(

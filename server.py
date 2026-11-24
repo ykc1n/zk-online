@@ -4,21 +4,23 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
+import os
 from pathlib import Path
 import re
 import threading
 from urllib.parse import parse_qs, urlsplit
 
-from content import DEFAULT_GAME, DEFAULT_MAP, prepare
+from content import DEFAULT_GAME, DEFAULT_MAP, PRESETS, game_id, prepare
 
 PUBLIC = Path(__file__).resolve().parent / "public"
 ENGINE = "2026.07.04"
+BROWSER_ENGINE = "2026.07.04-41-g71b7f57 wasm-port"
 lock = threading.Lock()
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, install=None, **kwargs):
-        self.install = install
+    def __init__(self, *args, installs=None, **kwargs):
+        self.installs = installs or {}
         super().__init__(*args, directory=str(PUBLIC), **kwargs)
 
     def end_headers(self):
@@ -54,7 +56,8 @@ class Handler(SimpleHTTPRequestHandler):
                                       "size": file.stat().st_size, "id": str(file.stat().st_mtime_ns)})
             build = str((root / "spring-web.wasm").stat().st_mtime_ns) if ready else ""
             return self.respond(200, {"ready": ready and bool(files), "engine": ENGINE, "build": build,
-                                      "game": DEFAULT_GAME, "map": DEFAULT_MAP, "files": files})
+                                      "browserEngine": BROWSER_ENGINE, "game": DEFAULT_GAME, "map": DEFAULT_MAP,
+                                      "presets": PRESETS, "files": files})
         if request.path != "/api/content":
             return super().do_GET()
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
@@ -64,8 +67,11 @@ class Handler(SimpleHTTPRequestHandler):
         if kind not in ("map", "game") or not re.fullmatch(r"[^\x00-\x1f;{}\[\]/\\]{1,180}", name):
             return self.respond(400, {"error": "Invalid game or map name."})
         try:
+            key = game_id(name) if kind == "game" else params.get("game", ["zk"])[0]
+            if key not in PRESETS:
+                raise ValueError("Unknown game.")
             with lock:
-                record = prepare(kind, name, PUBLIC / "content", self.install)
+                record = prepare(kind, name, PUBLIC / "content", self.installs.get(key))
         except (ValueError, OSError, EOFError) as error:
             return self.respond(422, {"error": str(error)})
         return self.respond(200, {**record, "url": "/content/" + record["file"], "id": record["file"]})
@@ -76,12 +82,17 @@ def main():
     cli.add_argument("--port", type=int, default=8080)
     cli.add_argument("--host", default="127.0.0.1")
     cli.add_argument("--install", type=Path, help="Optional Zero-K install to reuse local maps and Rapid pool files.")
+    cli.add_argument("--bar-install", type=Path, help="Optional Beyond All Reason data directory.")
     args = cli.parse_args()
     steam = Path("C:/Program Files (x86)/Steam/steamapps/common/Zero-K")
     install = args.install or (steam if steam.is_dir() else None)
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    bar = args.bar_install or next((p for p in (
+        local / "Beyond All Reason/Data", local / "Programs/Beyond-All-Reason/data"
+    ) if p.is_dir()), None)
     mimetypes.add_type("application/wasm", ".wasm")
     mimetypes.add_type("text/javascript", ".js")
-    server = ThreadingHTTPServer((args.host, args.port), partial(Handler, install=install))
+    server = ThreadingHTTPServer((args.host, args.port), partial(Handler, installs={"zk": install, "bar": bar}))
     print(f"zk-online is listening on http://{args.host}:{server.server_port}", flush=True)
     server.serve_forever()
 

@@ -1,7 +1,9 @@
-"""Resolve exact Zero-K releases and maps for the browser engine."""
+"""Resolve Recoil game releases and maps for the browser engine."""
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import gzip
 import hashlib
+import http.client
 import io
 import json
 from pathlib import Path
@@ -9,14 +11,30 @@ import re
 import shutil
 import struct
 import tempfile
+import threading
+import time
 import urllib.parse
 import urllib.request
 import zipfile
 
 RAPID = "https://repos.springrts.com/zk"
+BAR_RAPID = "https://repos-cdn.beyondallreason.dev/byar"
 MAPS = "https://springfiles.springrts.com"
 DEFAULT_GAME = "Zero-K v1.14.8.0"
 DEFAULT_MAP = "TitanDuel 2.2"
+PRESETS = {
+    "zk": {"title": "Zero-K", "game": DEFAULT_GAME, "map": DEFAULT_MAP,
+           "ai": "CAI", "sides": ["Robots", "Robots"]},
+    "bar": {"title": "Beyond All Reason", "game": "Beyond All Reason test-31943-6cd6caa",
+            "map": "All That Glitters v2.2", "ai": "SimpleAI", "sides": ["Armada", "Cortex"]},
+}
+
+
+def game_id(name):
+    for key, preset in PRESETS.items():
+        if re.fullmatch(re.escape(preset["title"]) + r" [a-zA-Z0-9._+:-]+", name, re.I):
+            return key
+    raise ValueError("Choose a versioned Zero-K or Beyond All Reason release.")
 
 
 def read_url(url, data=None):
@@ -43,18 +61,45 @@ def package_index(package):
     return digest.hexdigest(), entries
 
 
-def package_game(name, dest, install):
-    with read_url(f"{RAPID}/versions.gz") as response:
-        versions = gzip.decompress(response.read()).decode().splitlines()
-    package = next((row[1] for line in versions if len(row := line.split(",", 3)) == 4
-                    and row[3].casefold() == name.casefold()), None)
-    if not package or not re.fullmatch(r"[a-f0-9]{32}", package):
-        raise ValueError(f"The Zero-K Rapid repository has no release named {name}.")
-    with read_url(f"{RAPID}/packages/{package}.sdp") as response:
-        digest, entries = package_index(response.read())
-    if digest != package:
-        raise ValueError("The Rapid package index failed its checksum.")
+def bar_files(entries, install):
+    # BAR distributes individual gzip pool objects on a CDN. Reuse TLS
+    # connections and bound the number of results waiting for the ZIP writer.
+    url = urllib.parse.urlsplit(BAR_RAPID)
+    worker = threading.local()
+    connections = []
 
+    def fetch(entry):
+        _, key, size = entry
+        relative = f"pool/{key[:2]}/{key[2:]}.gz"
+        if install and (install / relative).is_file():
+            return (install / relative).read_bytes()
+        if not hasattr(worker, "connection"):
+            worker.connection = http.client.HTTPSConnection(url.netloc, timeout=120)
+            connections.append(worker.connection)
+        connection = worker.connection
+        for attempt in range(3):
+            try:
+                connection.request("GET", f"{url.path}/{relative}")
+                with connection.getresponse() as response:
+                    if response.status != 200:
+                        raise OSError(f"HTTP {response.status}")
+                    return response.read(size + size // 100 + 4096)
+            except (OSError, http.client.HTTPException) as error:
+                connection.close()
+                if attempt == 2:
+                    raise OSError(f"BAR download failed for {key}: {error}") from error
+                time.sleep(attempt + 1)
+
+    try:
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            for offset in range(0, len(entries), 64):
+                yield from pool.map(fetch, entries[offset:offset + 64])
+    finally:
+        for connection in connections:
+            connection.close()
+
+
+def streamed_files(package, entries, install):
     local = {}
     requested = bytearray(len(entries) // 8 + 1)
     for i, (_, key, _) in enumerate(entries):
@@ -66,15 +111,36 @@ def package_game(name, dest, install):
 
     stream = (read_url(f"{RAPID}/streamer.cgi?{package}", gzip.compress(requested))
               if any(requested) else contextlib.nullcontext())
-    with stream as incoming, zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
-        for i, (path, key, size) in enumerate(entries):
+    with stream as incoming:
+        for i, (_, _, size) in enumerate(entries):
             if i in local:
-                compressed = local[i].read_bytes()
+                yield local[i].read_bytes()
             else:
                 length = int.from_bytes(exact(incoming, 4), "big")
                 if not 0 < length <= size + size // 100 + 4096:
                     raise ValueError("Invalid Rapid stream entry length.")
-                compressed = exact(incoming, length)
+                yield exact(incoming, length)
+
+
+def package_game(name, dest, install):
+    bar = game_id(name) == "bar"
+    repo = BAR_RAPID if bar else RAPID
+    with read_url(f"{repo}/versions.gz") as response:
+        versions = gzip.decompress(response.read()).decode().splitlines()
+    package = next((row[1] for line in versions if len(row := line.split(",", 3)) == 4
+                    and row[3].casefold() == name.casefold()), None)
+    if not package or not re.fullmatch(r"[a-f0-9]{32}", package):
+        raise ValueError(f"The Rapid repository has no release named {name}.")
+    with read_url(f"{repo}/packages/{package}.sdp") as response:
+        digest, entries = package_index(response.read())
+    if digest != package:
+        raise ValueError("The Rapid package index failed its checksum.")
+
+    files = bar_files(entries, install) if bar else streamed_files(package, entries, install)
+    with contextlib.closing(files), zipfile.ZipFile(
+        dest, "w", zipfile.ZIP_DEFLATED, compresslevel=6 if bar else 1
+    ) as archive:
+        for (path, key, size), compressed in zip(entries, files, strict=True):
             contents = gzip.decompress(compressed)
             if len(contents) != size or hashlib.md5(contents).hexdigest() != key:
                 raise ValueError(f"Rapid integrity check failed for {path}.")
@@ -148,8 +214,6 @@ def prepare(kind, name, cache, install=None):
     if kind == "map":
         archive = fetch_map(name, cache, install)
     else:
-        if not re.fullmatch(r"Zero-K [a-zA-Z0-9._+\-]+", name, re.IGNORECASE):
-            raise ValueError("Choose a versioned Zero-K game release.")
         with tempfile.NamedTemporaryFile(dir=cache, delete=False) as temp:
             draft = Path(temp.name)
         try:

@@ -95,9 +95,29 @@ main {
   background:
     linear-gradient(90deg, rgba(6, 15, 10, 0.84), transparent 75%),
     linear-gradient(0deg, rgba(8, 14, 10, 0.45), transparent 50%),
-    url(/zero-k.jpg) center/cover;
+    var(--poster, url(/zero-k.jpg)) center/cover;
   border: 1px solid var(--line);
   border-bottom: 0;
+}
+.games {
+  gap: 0;
+}
+.games a {
+  padding: 9px 18px;
+  color: var(--muted);
+}
+.games a[aria-current="page"] {
+  background: var(--surface);
+  color: var(--action);
+  box-shadow: inset 0 -3px var(--action);
+}
+body.bar {
+  --action: #ffbd78;
+  --poster: url(/bar.jpg);
+}
+.bar h1 {
+  max-width: 12ch;
+  font-size: clamp(3.2rem, 8vw, 7rem);
 }
 .eyebrow {
   margin: 0;

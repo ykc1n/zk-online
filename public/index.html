@@ -15,10 +15,14 @@
     </header>
     <main>
       <section id="launcher">
+        <nav class="games" aria-label="Choose game">
+          <a id="zk-link" href="/?game=zk">Zero-K</a>
+          <a id="bar-link" href="/?game=bar">Beyond All Reason</a>
+        </nav>
         <div class="poster">
           <div>
             <p class="eyebrow">REAL-TIME STRATEGY</p>
-            <h1>Zero-K</h1>
+            <h1 id="title">Zero-K</h1>
           </div>
         </div>
         <div class="launch-body">
@@ -40,8 +44,8 @@
             </div>
           </section>
           <section id="play" hidden>
-            <h2>Play against CAI</h2>
-            <p>Command a Zero-K army in a one-on-one skirmish.</p>
+            <h2 id="opponent">Play against CAI</h2>
+            <p id="brief">Command a Zero-K army in a one-on-one skirmish.</p>
             <form id="skirmish">
               <label for="map">Map name</label>
               <div class="actions">
@@ -75,7 +79,7 @@
             width="1280"
             height="720"
             tabindex="0"
-            aria-label="Zero-K game view"
+            aria-label="Game view"
           ></canvas>
         </div>
       </section>
@@ -90,7 +94,7 @@
       </details>
     </main>
     <footer>
-      <span>Zero-K</span><span>Recoil <b id="version">2026.07.04</b></span>
+      <span>zk-online</span><span>Recoil <b id="version">2026.07.04</b></span>
     </footer>
     <script type="module" src="/app.js"></script>
   </body>

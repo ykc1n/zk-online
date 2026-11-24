@@ -1,0 +1,47 @@
+diff --git a/rts/lib/wasm-stubs/devil/IL/il.h b/rts/lib/wasm-stubs/devil/IL/il.h
+index 6bdda3c..cbd75b5 100644
+--- a/rts/lib/wasm-stubs/devil/IL/il.h
++++ b/rts/lib/wasm-stubs/devil/IL/il.h
+@@ -20,6 +20,9 @@
+ #include <cstdint>
+ #include <cstring>
+ #include <vector>
++#ifdef RECOIL_WEB_RENDER
++#include <SDL_surface.h>
++#endif
+ 
+ typedef unsigned int   ILenum;
+ typedef unsigned char  ILboolean;
+@@ -274,6 +277,32 @@ static inline ILboolean ilLoadL(ILenum, const void* lump, ILuint size)
+ 		static_cast<void*>(stbi_load_16_from_memory(buf, len, &w, &h, &n, 0)):
+ 		static_cast<void*>(stbi_load_from_memory(buf, len, &w, &h, &n, 0));
+ 
++#ifdef RECOIL_WEB_RENDER
++	// Zero-K uses indexed RLE bitmaps for some 3DO unit textures.
++	// SDL decodes those formats, which stb_image does not implement.
++	if (pixels == nullptr && len >= 2 && buf[0] == 'B' && buf[1] == 'M') {
++		SDL_Surface* decoded = SDL_LoadBMP_RW(SDL_RWFromConstMem(lump, len), 1);
++		if (decoded != nullptr) {
++			SDL_Surface* rgba = SDL_ConvertSurfaceFormat(decoded, SDL_PIXELFORMAT_RGBA32, 0);
++			SDL_FreeSurface(decoded);
++			if (rgba != nullptr) {
++				w = rgba->w;
++				h = rgba->h;
++				n = 4;
++				const size_t stride = size_t(w) * n;
++				pixels = STBI_MALLOC(stride * h);
++				if (pixels != nullptr) {
++					for (int y = 0; y < h; ++y) {
++						std::memcpy(static_cast<uint8_t*>(pixels) + stride * y,
++							static_cast<const uint8_t*>(rgba->pixels) + size_t(rgba->pitch) * y, stride);
++					}
++				}
++				SDL_FreeSurface(rgba);
++			}
++		}
++	}
++#endif
++
+ 	if (pixels == nullptr) {
+ 		lastError = IL_FORMAT_NOT_SUPPORTED;
+ 		return IL_FALSE;

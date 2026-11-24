@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101914" />
+    <title>Zero-K · zk-online</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/" aria-label="zk-online home"
+        ><span class="mark" aria-hidden="true">ZK</span> ZK-ONLINE</a
+      ><span class="engine-label">RECOIL <b>/</b> WEBASSEMBLY</span>
+    </header>
+    <main>
+      <section id="launcher">
+        <div class="poster">
+          <div>
+            <p class="eyebrow">REAL-TIME STRATEGY</p>
+            <h1>Zero-K</h1>
+          </div>
+        </div>
+        <div class="launch-body">
+          <nav aria-label="Game mode">
+            <button type="button" id="watchMode" aria-pressed="true">
+              Watch replay</button
+            ><button type="button" id="playMode" aria-pressed="false">
+              Play skirmish
+            </button>
+          </nav>
+          <section id="watch">
+            <h2>Open a replay</h2>
+            <p>Drop a Spring demo here to watch the match from any angle.</p>
+            <div class="actions">
+              <label class="primary file-label"
+                >Choose demo <span aria-hidden="true">↗</span
+                ><input type="file" id="demo" accept=".sdfz,.sdf" /></label
+              ><small>.SDFZ / .SDF</small>
+            </div>
+          </section>
+          <section id="play" hidden>
+            <h2>Play against CAI</h2>
+            <p>Command a Zero-K army in a one-on-one skirmish.</p>
+            <form id="skirmish">
+              <label for="map">Map name</label>
+              <div class="actions">
+                <input
+                  id="map"
+                  value="TitanDuel 2.2"
+                  required
+                  maxlength="180"
+                /><button class="primary" type="submit">
+                  Start skirmish <span aria-hidden="true">↗</span>
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </section>
+      <section id="session" hidden>
+        <div class="session-head">
+          <div>
+            <p class="eyebrow" id="kind"></p>
+            <h2 id="match"></h2>
+          </div>
+          <div class="toolbar">
+            <button id="fullscreen">Fullscreen</button
+            ><button id="leave">Leave session</button>
+          </div>
+        </div>
+        <div id="screen">
+          <canvas
+            id="canvas"
+            width="1280"
+            height="720"
+            tabindex="0"
+            aria-label="Zero-K game view"
+          ></canvas>
+        </div>
+      </section>
+      <div class="status">
+        <span id="light" aria-hidden="true"></span
+        ><span role="status" id="status">Checking browser…</span
+        ><progress id="progress" hidden></progress>
+      </div>
+      <details id="diagnostics" hidden>
+        <summary>Engine log</summary>
+        <pre id="log"></pre>
+      </details>
+    </main>
+    <footer>
+      <span>Zero-K</span><span>Recoil <b id="version">2026.07.04</b></span>
+    </footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
